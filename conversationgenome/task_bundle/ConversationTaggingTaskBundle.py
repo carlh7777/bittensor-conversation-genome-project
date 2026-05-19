@@ -1,6 +1,7 @@
 import random
 import uuid
 from copy import deepcopy
+from typing import Dict
 from typing import List
 from typing import Literal
 from typing import Optional
@@ -8,6 +9,8 @@ from typing import Tuple
 
 import bittensor as bt
 from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
 
 from conversationgenome.api.models.conversation import Conversation
 from conversationgenome.api.models.conversation_metadata import ConversationMetadata, ConversationQualityMetadata
@@ -27,12 +30,25 @@ from conversationgenome.utils.types import ForceStr
 from conversationgenome.utils.Utils import Utils
 
 
+class EnrichmentSearchResult(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    title: Optional[str] = None
+    snippet: Optional[str] = None
+
+
+class Enrichment(BaseModel):
+    search_results: Dict[str, List[EnrichmentSearchResult]] = Field(default_factory=dict)
+
+
 class ConversationInputData(BaseModel):
     participants: List[str]
     lines: List[Tuple[int, str]]
     total: int
     min_convo_windows: int = 1
     indexed_windows: Optional[List[Tuple[int, List[Tuple[int, str]]]]] = None
+    enrichment: Optional[Enrichment] = None
+    enrichment_lines: Optional[List[Tuple[int, str]]] = None
     prompt: str = (
         "Analyze conversation in terms of topic interests of the participants. Analyze the conversation (provided in structured XML format) where <p0> has the questions and <p1> has the answers. Return comma-delimited tags. Only return the tags without any English commentary."
     )
@@ -127,7 +143,8 @@ class ConversationTaggingTaskBundle(TaskBundle):
                     data=ConversationTaskInputData(
                         window_idx=indexed_window[0],
                         window=indexed_window[1],
-                        participants=[]
+                        participants=[],
+                        enrichment_lines=self.input.data.enrichment_lines,
                     ),
                     input_categories=self.input.input_categories
                 ),
@@ -202,21 +219,68 @@ class ConversationTaggingTaskBundle(TaskBundle):
             miner_task_prompt=self.input.data.prompt,
             input_categories=self.input.input_categories
         )
-        result: RawMetadata = llml.conversation_to_metadata(conversation=conversation, generateEmbeddings=True)
+        conversation_metadata: RawMetadata = llml.conversation_to_metadata(conversation=conversation, generateEmbeddings=False)
 
-        if not result:
+        if not conversation_metadata:
             bt.logging.error(f"ERROR:2873226353. No conversation metadata returned. Aborting.")
             return
 
-        if not result.success:
-            bt.logging.error(f"ERROR:2873226354. Conversation metadata failed: {result}. Aborting.")
+        if not conversation_metadata.success:
+            bt.logging.error(f"ERROR:2873226354. Conversation metadata failed: {conversation_metadata}. Aborting.")
             return
+
+        all_tags = [conversation_metadata.tags]
+        enrichment_lines = self._build_enrichment_lines_and_tags(llml=llml, all_tags=all_tags)
+        self.input.data.enrichment_lines = enrichment_lines
+
+        if len(all_tags) > 1:
+            result: RawMetadata = llml.combine_metadata_tags(all_tags, generateEmbeddings=True)
+            if not result or not result.success:
+                bt.logging.error(f"ERROR:2873226355. Combined conversation+enrichment metadata failed. Aborting.")
+                return
+        else:
+            result = RawMetadata(
+                tags=conversation_metadata.tags,
+                vectors=llml.get_vector_embeddings_set(conversation_metadata.tags),
+                success=True,
+            )
 
         self.input.metadata = ConversationMetadata(
             participantProfiles=self.input.data.participants,
             tags=getattr(result, "tags", []),
             vectors=getattr(result, "vectors", {}),
         )
+
+    def _build_enrichment_lines_and_tags(self, llml: LlmLib, all_tags: List[List[str]]) -> List[Tuple[int, str]]:
+        enrichment_lines: List[Tuple[int, str]] = []
+        enrichment = self.input.data.enrichment
+        if not enrichment or not enrichment.search_results:
+            bt.logging.info(f"Generating non-enriched metadata for conversation")
+            return enrichment_lines
+
+        bt.logging.info(f"Generating enrichment metadata for conversation")
+        for query, results in enrichment.search_results.items():
+            if not results:
+                continue
+            num_to_select = random.randint(1, min(3, len(results)))
+            selected_results = random.sample(results, num_to_select)
+
+            for chosen_res in selected_results:
+                snippet = chosen_res.snippet or ''
+                title = chosen_res.title or ''
+                enrichment_text = f"{title}\n{snippet}"[:1000]
+
+                if not enrichment_text.strip():
+                    continue
+
+                enrichment_lines.append((len(enrichment_lines), enrichment_text))
+                enrichment_metadata = llml.enrichment_to_metadata(
+                    enrichment_text, input_categories=self.input.input_categories
+                )
+                if enrichment_metadata and enrichment_metadata.tags:
+                    all_tags.append(enrichment_metadata.tags)
+
+        return enrichment_lines
 
     async def _get_vector_embeddings_set(self, llml: LlmLib, tags):
         return llml.get_vector_embeddings_set(tags)
