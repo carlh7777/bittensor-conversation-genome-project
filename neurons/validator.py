@@ -63,9 +63,9 @@ class Validator(BaseValidatorNeuron):
                 axon = copy.copy(axon)
                 axon.ip = ip
                 axon.port = port
-                bt.logging.info(f"UID {uid}: using committed endpoint {ip}:{port}")
+                bt.logging.info(f"UID {uid}: using committed endpoint")
             else:
-                bt.logging.info(f"UID {uid}: using metagraph endpoint {axon.ip}:{axon.port}")
+                bt.logging.info(f"UID {uid}: using metagraph endpoint")
             axons.append(axon)
         return axons
 

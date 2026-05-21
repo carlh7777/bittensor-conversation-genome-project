@@ -20,7 +20,9 @@ import argparse
 import asyncio
 import copy
 import datetime
+import logging
 import os
+import re
 import threading
 from traceback import print_exception
 from typing import Dict, List, Tuple
@@ -61,6 +63,21 @@ class BaseValidatorNeuron(BaseNeuron):
         else:
             self.dendrite = bt.dendrite(wallet=self.wallet)
         bt.logging.info(f"Dendrite: {self.dendrite}")
+
+        # Install a log filter to redact miner IP addresses from bittensor's
+        # internal dendrite/axon logs (trace, debug, error messages).
+        _ip_port_re = re.compile(
+            r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}\b"
+        )
+
+        class _RedactIPFilter(logging.Filter):
+            def filter(self, record):
+                if hasattr(record, "msg") and isinstance(record.msg, str):
+                    record.msg = _ip_port_re.sub("[REDACTED]", record.msg)
+                return True
+
+        for handler in logging.root.handlers:
+            handler.addFilter(_RedactIPFilter())
 
         # Set up initial scoring weights for validation
         bt.logging.info("Building validation weights.")
@@ -337,9 +354,9 @@ class BaseValidatorNeuron(BaseNeuron):
             )
             self.committed_endpoints = endpoints
             bt.logging.info(f"Fetched commitments for {len(self.metagraph.hotkeys)} hotkeys, {len(endpoints)} decrypted successfully.")
-            for hotkey, (ip, port) in endpoints.items():
+            for hotkey in endpoints:
                 uid = self.metagraph.hotkeys.index(hotkey) if hotkey in self.metagraph.hotkeys else "?"
-                bt.logging.info(f"  Commitment: UID {uid} -> {ip}:{port}")
+                bt.logging.info(f"  Commitment found for UID {uid}")
         except Exception as e:
             bt.logging.error(f"Error refreshing miner commitments: {e}")
 

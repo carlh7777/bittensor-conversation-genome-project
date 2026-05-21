@@ -120,10 +120,11 @@ class BaseMinerNeuron(BaseNeuron):
                 else:
                     bt.logging.warning(f"Encrypted endpoint commitment failed — will retry on next restart.")
 
-                # Serve dummy address to metagraph so real endpoint is not visible
-                self.axon.external_ip = "0.0.0.0"
+                # Serve blackhole address to metagraph so real endpoint is not visible
+                # 192.0.2.0/24 is TEST-NET-1 (RFC 5737), reserved and non-routable
+                self.axon.external_ip = "192.0.2.1"
                 self.axon.external_port = 1234
-                bt.logging.info(f"Serving dummy endpoint 0.0.0.0:1234 to metagraph.")
+                bt.logging.info(f"Serving dummy endpoint to metagraph.")
             except Exception as e:
                 bt.logging.error(f"Error publishing encrypted commitment: {e}")
 
