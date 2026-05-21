@@ -370,6 +370,10 @@ class BaseValidatorNeuron(BaseNeuron):
         # Sync the metagraph.
         self.metagraph.sync(subtensor=self.subtensor)
 
+        # Refresh encrypted endpoint commitments on every metagraph sync,
+        # regardless of whether axon info changed (commitments are independent).
+        self.refresh_miner_endpoints()
+
         # Check if the metagraph axon info has changed.
         if previous_metagraph.axons == self.metagraph.axons:
             return
@@ -395,9 +399,6 @@ class BaseValidatorNeuron(BaseNeuron):
 
         # Update the hotkeys.
         self.hotkeys = copy.deepcopy(self.metagraph.hotkeys)
-
-        # Refresh encrypted endpoint commitments.
-        self.refresh_miner_endpoints()
 
     def update_scores(self, rewards: np.ndarray, uids: List[int]):
         """

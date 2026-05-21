@@ -17,6 +17,7 @@
 
 
 import copy
+import os
 import random
 import time
 from typing import List
@@ -51,6 +52,26 @@ class Validator(BaseValidatorNeuron):
         self.responses = []
         self.initial_status_codes = {}
         self.final_status_codes = {}
+
+    def _refresh_commitment_for_uid(self, uid):
+        """Re-read and decrypt the commitment for a single miner UID."""
+        private_key_hex = os.environ.get("COMMITMENT_PRIVATE_KEY", "").strip()
+        if not private_key_hex:
+            return
+
+        try:
+            from conversationgenome.commitment.commitment import decrypt_endpoint, read_commitment
+
+            hotkey = self.metagraph.hotkeys[uid]
+            private_key_bytes = bytes.fromhex(private_key_hex)
+            ciphertext = read_commitment(self.subtensor, self.config.netuid, hotkey)
+            if ciphertext is None:
+                return
+            ip, port = decrypt_endpoint(ciphertext, private_key_bytes)
+            self.committed_endpoints[hotkey] = (ip, port)
+            bt.logging.info(f"Refreshed commitment for UID {uid} after failed request.")
+        except Exception as e:
+            bt.logging.debug(f"Could not refresh commitment for UID {uid}: {e}")
 
     def _get_axons_for_uids(self, uids):
         """Get axon list for UIDs, applying committed endpoint overrides when available."""
@@ -199,6 +220,10 @@ class Validator(BaseValidatorNeuron):
                         self.initial_status_codes[status_code] = self.initial_status_codes.get(status_code, 0) + 1
 
                         if status_code in [408, 422]:
+                            uids_to_retry.append(miner_uids[i])
+                        elif status_code is not None and str(status_code) == "503":
+                            bt.logging.info(f"503 for UID {miner_uids[i]} — refreshing commitment and retrying.")
+                            self._refresh_commitment_for_uid(miner_uids[i])
                             uids_to_retry.append(miner_uids[i])
                         elif status_code is not None and str(status_code).startswith("5"):
                             bt.logging.info(f"5xx status code detected: {status_code} for UID {miner_uids[i]}")
