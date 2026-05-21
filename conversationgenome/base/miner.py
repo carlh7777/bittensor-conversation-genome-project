@@ -15,6 +15,7 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+import os
 import time
 import torch
 import asyncio
@@ -103,6 +104,24 @@ class BaseMinerNeuron(BaseNeuron):
             f"Serving miner axon {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
         )
         self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
+
+        # Publish encrypted endpoint commitment if configured.
+        commitment_pub_key_hex = os.environ.get("COMMITMENT_PUBLIC_KEY", "").strip()
+        if commitment_pub_key_hex:
+            try:
+                from conversationgenome.commitment.commitment import encrypt_endpoint, publish_commitment
+
+                public_key_bytes = bytes.fromhex(commitment_pub_key_hex)
+                axon_ip = self.axon.external_ip
+                axon_port = self.axon.external_port
+                ciphertext = encrypt_endpoint(axon_ip, axon_port, public_key_bytes)
+                success = publish_commitment(self.subtensor, self.wallet, self.config.netuid, ciphertext)
+                if success:
+                    bt.logging.info(f"Encrypted endpoint commitment published successfully.")
+                else:
+                    bt.logging.warning(f"Encrypted endpoint commitment failed — will retry on next restart.")
+            except Exception as e:
+                bt.logging.error(f"Error publishing encrypted commitment: {e}")
 
         # Start  starts the miner's axon, making it active on the network.
         self.axon.start()

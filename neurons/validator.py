@@ -16,6 +16,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 
+import copy
 import random
 import time
 from typing import List
@@ -50,6 +51,23 @@ class Validator(BaseValidatorNeuron):
         self.responses = []
         self.initial_status_codes = {}
         self.final_status_codes = {}
+
+    def _get_axons_for_uids(self, uids):
+        """Get axon list for UIDs, applying committed endpoint overrides when available."""
+        axons = []
+        for uid in uids:
+            axon = self.metagraph.axons[uid]
+            hotkey = self.metagraph.hotkeys[uid]
+            if hotkey in self.committed_endpoints:
+                ip, port = self.committed_endpoints[hotkey]
+                axon = copy.copy(axon)
+                axon.ip = ip
+                axon.port = port
+                bt.logging.info(f"UID {uid}: using committed endpoint {ip}:{port}")
+            else:
+                bt.logging.info(f"UID {uid}: using metagraph endpoint {axon.ip}:{axon.port}")
+            axons.append(axon)
+        return axons
 
     async def forward(self, test_mode=False):
         try:
@@ -163,7 +181,7 @@ class Validator(BaseValidatorNeuron):
                 synapse = conversationgenome.protocol.CgSynapse(cgp_input=[{"task": masked_task}])
 
                 responses = await self.dendrite.forward(
-                    axons=[self.metagraph.axons[uid] for uid in miner_uids],
+                    axons=self._get_axons_for_uids(miner_uids),
                     synapse=synapse,
                     deserialize=False,
                 )
@@ -192,7 +210,7 @@ class Validator(BaseValidatorNeuron):
                     bt.logging.debug(f"Retrying requests for the following UIDs (same synapse): {uids_to_retry}")
 
                     retry_responses = await self.dendrite.forward(
-                        axons=[self.metagraph.axons[uid] for uid in uids_to_retry],
+                        axons=self._get_axons_for_uids(uids_to_retry),
                         synapse=synapse,
                         deserialize=False,
                     )

@@ -23,7 +23,7 @@ import datetime
 import os
 import threading
 from traceback import print_exception
-from typing import List
+from typing import Dict, List, Tuple
 
 import bittensor as bt
 import numpy as np
@@ -73,6 +73,9 @@ class BaseValidatorNeuron(BaseNeuron):
 
         # Burn rate -> burns 90% of the emissions.
         self.burn_rate = 0.9
+
+        # Committed endpoint cache: {hotkey_ss58: (ip, port)}
+        self.committed_endpoints: Dict[str, Tuple[str, int]] = {}
 
         # Init sync with the network. Updates the metagraph.
         self.sync()
@@ -319,6 +322,27 @@ class BaseValidatorNeuron(BaseNeuron):
         else:
             bt.logging.error(f"set_weights failed: {msg}")
 
+    def refresh_miner_endpoints(self):
+        """Read and decrypt encrypted endpoint commitments for all miners."""
+        private_key_hex = os.environ.get("COMMITMENT_PRIVATE_KEY", "").strip()
+        if not private_key_hex:
+            return
+
+        try:
+            from conversationgenome.commitment.commitment import read_all_commitments
+
+            private_key_bytes = bytes.fromhex(private_key_hex)
+            endpoints = read_all_commitments(
+                self.subtensor, self.config.netuid, self.metagraph.hotkeys, private_key_bytes
+            )
+            self.committed_endpoints = endpoints
+            bt.logging.info(f"Fetched commitments for {len(self.metagraph.hotkeys)} hotkeys, {len(endpoints)} decrypted successfully.")
+            for hotkey, (ip, port) in endpoints.items():
+                uid = self.metagraph.hotkeys.index(hotkey) if hotkey in self.metagraph.hotkeys else "?"
+                bt.logging.info(f"  Commitment: UID {uid} -> {ip}:{port}")
+        except Exception as e:
+            bt.logging.error(f"Error refreshing miner commitments: {e}")
+
     def resync_metagraph(self):
         """Resyncs the metagraph and updates the hotkeys and moving averages based on the new metagraph."""
         bt.logging.info("resync_metagraph()")
@@ -354,6 +378,9 @@ class BaseValidatorNeuron(BaseNeuron):
 
         # Update the hotkeys.
         self.hotkeys = copy.deepcopy(self.metagraph.hotkeys)
+
+        # Refresh encrypted endpoint commitments.
+        self.refresh_miner_endpoints()
 
     def update_scores(self, rewards: np.ndarray, uids: List[int]):
         """
