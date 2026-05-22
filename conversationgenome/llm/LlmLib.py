@@ -158,6 +158,9 @@ class LlmLib(ABC):
             return None
         
     def validate_tag_set(self, tags: List[str]) -> List[str] | None:
+        if not tags:
+            return None
+        
         clean_tag_list = Utils.get_clean_tag_set(tags)
         if len(clean_tag_list) >= 20:
             random_indices = random.sample(range(len(clean_tag_list)), 20)
