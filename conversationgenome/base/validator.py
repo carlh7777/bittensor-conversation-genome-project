@@ -66,14 +66,26 @@ class BaseValidatorNeuron(BaseNeuron):
 
         # Install a log filter to redact miner IP addresses from bittensor's
         # internal dendrite/axon logs (trace, debug, error messages).
-        _ip_port_re = re.compile(
-            r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}\b"
+        # Matches ip:port, ip:port/, ('ip', port), and bare IPs in URLs.
+        _ip_redact_patterns = re.compile(
+            r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d{1,5})?\b"
         )
 
         class _RedactIPFilter(logging.Filter):
             def filter(self, record):
                 if hasattr(record, "msg") and isinstance(record.msg, str):
-                    record.msg = _ip_port_re.sub("[REDACTED]", record.msg)
+                    record.msg = _ip_redact_patterns.sub("[REDACTED]", record.msg)
+                if hasattr(record, "args") and record.args:
+                    if isinstance(record.args, dict):
+                        record.args = {
+                            k: _ip_redact_patterns.sub("[REDACTED]", str(v)) if isinstance(v, str) else v
+                            for k, v in record.args.items()
+                        }
+                    elif isinstance(record.args, tuple):
+                        record.args = tuple(
+                            _ip_redact_patterns.sub("[REDACTED]", str(a)) if isinstance(a, str) else a
+                            for a in record.args
+                        )
                 return True
 
         for handler in logging.root.handlers:
