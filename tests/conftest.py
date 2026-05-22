@@ -135,6 +135,9 @@ def bare_validator(monkeypatch):
     v.responses = []
     v.initial_status_codes = {}
     v.final_status_codes = {}
+    v.committed_endpoints = {}
+    v._commitment_cache = {}
+    v._uid_refresh_timestamps = {}
 
     v.axon = type("Ax", (), {"wallet": type("W", (), {"hotkey": type("H", (), {"ss58_address": "HK"})()})()})()
     v.metagraph = type(

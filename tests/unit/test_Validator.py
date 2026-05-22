@@ -248,7 +248,7 @@ async def test_forward_handles_missing_cgp_output(bare_validator, fake_libs, mon
             self.cgp_output = None  # Simulate missing cgp_output
 
     validator.dendrite.forward = AsyncMock(side_effect=lambda axons, *_, **__: [DummyResponseNoCGP(axon.hotkey) for axon in axons])
-    validator.metagraph.hotkeys = ["hk"]
+    validator.metagraph.hotkeys = ["hk0", "hk1", "hk2"]
     validator.update_scores = MagicMock()
 
     result = await validator.forward(test_mode=True)
