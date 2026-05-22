@@ -138,7 +138,7 @@ class BaseMinerNeuron(BaseNeuron):
 
         # Serve passes the axon information to the network + netuid we are hosting on.
         bt.logging.info(
-            f"Serving miner axon {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
+            f"Serving miner axon (external: {self.axon.external_ip}:{self.axon.external_port}) on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
         )
         self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
 
