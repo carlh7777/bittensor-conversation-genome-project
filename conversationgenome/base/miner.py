@@ -121,7 +121,8 @@ class BaseMinerNeuron(BaseNeuron):
                 bt.logging.info(f"Real endpoint: {real_ip}:{real_port} — will be encrypted in commitment.")
 
                 public_key_bytes = bytes.fromhex(commitment_pub_key_hex)
-                ciphertext = encrypt_endpoint(real_ip, real_port, public_key_bytes)
+                hotkey_ss58 = self.wallet.hotkey.ss58_address
+                ciphertext = encrypt_endpoint(real_ip, real_port, public_key_bytes, hotkey=hotkey_ss58)
                 success = publish_commitment(self.subtensor, self.wallet, self.config.netuid, ciphertext)
                 if success:
                     bt.logging.info(f"Encrypted endpoint commitment published successfully.")

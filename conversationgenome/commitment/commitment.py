@@ -1,21 +1,39 @@
 from typing import Optional
 
 import bittensor as bt
+import nacl.exceptions
 from nacl.public import PrivateKey, PublicKey, SealedBox
 
 
-def encrypt_endpoint(ip: str, port: int, public_key_bytes: bytes) -> bytes:
-    """Encrypt an ip:port string using a NaCl sealed box."""
-    plaintext = f"{ip}:{port}".encode()
+def encrypt_endpoint(ip: str, port: int, public_key_bytes: bytes, hotkey: str = "") -> bytes:
+    """Encrypt hotkey|ip:port using a NaCl sealed box.
+
+    The hotkey is embedded so the validator can verify the commitment
+    belongs to the miner that published it (prevents replay attacks).
+    """
+    plaintext = f"{hotkey}|{ip}:{port}".encode()
     box = SealedBox(PublicKey(public_key_bytes))
     return box.encrypt(plaintext)
 
 
-def decrypt_endpoint(ciphertext: bytes, private_key_bytes: bytes) -> tuple:
-    """Decrypt ciphertext to recover (ip, port)."""
+def decrypt_endpoint(ciphertext: bytes, private_key_bytes: bytes, expected_hotkey: str = "") -> tuple:
+    """Decrypt ciphertext to recover (ip, port).
+
+    If expected_hotkey is provided, verifies the embedded hotkey matches.
+    Raises ValueError on mismatch (commitment was copied from another miner).
+    """
     box = SealedBox(PrivateKey(private_key_bytes))
     plaintext = box.decrypt(ciphertext).decode()
-    ip, port_str = plaintext.rsplit(":", 1)
+
+    if "|" in plaintext:
+        hotkey_part, endpoint = plaintext.split("|", 1)
+        if expected_hotkey and hotkey_part != expected_hotkey:
+            raise ValueError(f"Commitment hotkey mismatch: expected {expected_hotkey[:8]}..., got {hotkey_part[:8]}...")
+    else:
+        # Backwards compatible with old format (ip:port without hotkey)
+        endpoint = plaintext
+
+    ip, port_str = endpoint.rsplit(":", 1)
     return ip, int(port_str)
 
 
@@ -129,10 +147,18 @@ def read_all_commitments(
             continue
 
         try:
-            ip, port = decrypt_endpoint(ciphertext, private_key_bytes)
+            ip, port = decrypt_endpoint(ciphertext, private_key_bytes, expected_hotkey=hotkey_str)
             new_cache[hotkey_str] = (block, ip, port)
             endpoints[hotkey_str] = (ip, port)
             found += 1
+        except ValueError as e:
+            # Hotkey mismatch — commitment was likely copied from another miner
+            bt.logging.warning(f"Rejected commitment for {hotkey_str}: {e}")
+        except nacl.exceptions.CryptoError:
+            # Wrong public key or corrupted/random data
+            bt.logging.debug(f"Could not decrypt commitment for {hotkey_str}: invalid ciphertext (wrong key or garbage data)")
+        except UnicodeDecodeError:
+            bt.logging.debug(f"Could not decrypt commitment for {hotkey_str}: decrypted bytes are not valid UTF-8")
         except Exception as e:
             bt.logging.debug(f"Could not decrypt commitment for {hotkey_str}: {e}")
 

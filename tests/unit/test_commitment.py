@@ -27,44 +27,61 @@ def _generate_keypair():
 class TestEncryptDecrypt:
     def test_round_trip_basic(self):
         pub, priv = _generate_keypair()
-        ct = encrypt_endpoint("192.168.1.100", 8091, pub)
-        ip, port = decrypt_endpoint(ct, priv)
+        ct = encrypt_endpoint("192.168.1.100", 8091, pub, hotkey="5FakeHotkey")
+        ip, port = decrypt_endpoint(ct, priv, expected_hotkey="5FakeHotkey")
         assert ip == "192.168.1.100"
         assert port == 8091
 
     def test_round_trip_worst_case_ipv4(self):
         pub, priv = _generate_keypair()
-        ct = encrypt_endpoint("255.255.255.255", 65535, pub)
-        ip, port = decrypt_endpoint(ct, priv)
+        ct = encrypt_endpoint("255.255.255.255", 65535, pub, hotkey="5FakeHotkey")
+        ip, port = decrypt_endpoint(ct, priv, expected_hotkey="5FakeHotkey")
         assert ip == "255.255.255.255"
         assert port == 65535
 
     def test_round_trip_localhost(self):
         pub, priv = _generate_keypair()
-        ct = encrypt_endpoint("127.0.0.1", 1, pub)
-        ip, port = decrypt_endpoint(ct, priv)
+        ct = encrypt_endpoint("127.0.0.1", 1, pub, hotkey="5FakeHotkey")
+        ip, port = decrypt_endpoint(ct, priv, expected_hotkey="5FakeHotkey")
         assert ip == "127.0.0.1"
         assert port == 1
 
     def test_ciphertext_differs_each_time(self):
         """Sealed boxes use ephemeral keys, so encrypting the same plaintext twice produces different ciphertext."""
         pub, _ = _generate_keypair()
-        ct1 = encrypt_endpoint("10.0.0.1", 8080, pub)
-        ct2 = encrypt_endpoint("10.0.0.1", 8080, pub)
+        ct1 = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey="5FakeHotkey")
+        ct2 = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey="5FakeHotkey")
         assert ct1 != ct2
 
     def test_ciphertext_size_within_limit(self):
-        """Worst-case IPv4:port is 21 bytes plaintext -> 69 bytes ciphertext, well within the 128-byte Raw limit."""
+        """Worst-case: 48-char hotkey + | + 21-char ip:port = 70 bytes plaintext + 48 overhead = 118 bytes."""
         pub, _ = _generate_keypair()
-        ct = encrypt_endpoint("255.255.255.255", 65535, pub)
+        worst_case_hotkey = "5" * 48  # SS58 hotkeys are up to 48 chars
+        ct = encrypt_endpoint("255.255.255.255", 65535, pub, hotkey=worst_case_hotkey)
         assert len(ct) <= 128
 
     def test_wrong_key_fails(self):
         pub1, _ = _generate_keypair()
         _, priv2 = _generate_keypair()
-        ct = encrypt_endpoint("10.0.0.1", 8080, pub1)
+        ct = encrypt_endpoint("10.0.0.1", 8080, pub1, hotkey="5FakeHotkey")
         with pytest.raises(Exception):
             decrypt_endpoint(ct, priv2)
+
+    def test_hotkey_mismatch_rejected(self):
+        """Copying another miner's commitment should be rejected due to hotkey mismatch."""
+        pub, priv = _generate_keypair()
+        ct = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey="5MinerA")
+        with pytest.raises(ValueError, match="mismatch"):
+            decrypt_endpoint(ct, priv, expected_hotkey="5MinerB")
+
+    def test_backwards_compatible_no_hotkey(self):
+        """Old format commitments (ip:port without hotkey) should still decrypt."""
+        pub, priv = _generate_keypair()
+        # Simulate old format by encrypting without hotkey
+        ct = encrypt_endpoint("10.0.0.1", 8080, pub)
+        ip, port = decrypt_endpoint(ct, priv)
+        assert ip == "10.0.0.1"
+        assert port == 8080
 
 
 # ── publish_commitment ───────────────────────────────────────────────
@@ -154,8 +171,8 @@ class TestReadAllCommitments:
 
     def test_decrypts_all_available(self):
         pub, priv = _generate_keypair()
-        ct1 = encrypt_endpoint("10.0.0.1", 8080, pub)
-        ct2 = encrypt_endpoint("10.0.0.2", 9090, pub)
+        ct1 = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey="hk0")
+        ct2 = encrypt_endpoint("10.0.0.2", 9090, pub, hotkey="hk1")
 
         query_map_result = [
             ("hk0", self._make_commitment_data(ct1, block=10)),
@@ -178,7 +195,7 @@ class TestReadAllCommitments:
     def test_skips_undecryptable(self):
         pub1, _ = _generate_keypair()
         _, priv2 = _generate_keypair()
-        ct = encrypt_endpoint("10.0.0.1", 8080, pub1)
+        ct = encrypt_endpoint("10.0.0.1", 8080, pub1, hotkey="hk0")
 
         query_map_result = [
             ("hk0", self._make_commitment_data(ct, block=10)),
@@ -193,9 +210,29 @@ class TestReadAllCommitments:
         assert endpoints == {}
         assert cache == {}
 
+    def test_rejects_copied_commitment(self):
+        """A miner copying another miner's commitment should be rejected."""
+        pub, priv = _generate_keypair()
+        # hk0 encrypts with its own hotkey
+        ct = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey="hk0")
+
+        # hk1 copies hk0's ciphertext
+        query_map_result = [
+            ("hk0", self._make_commitment_data(ct, block=10)),
+            ("hk1", self._make_commitment_data(ct, block=10)),  # copied!
+        ]
+
+        subtensor = MagicMock()
+        subtensor.query_map.return_value = query_map_result
+
+        endpoints, cache = read_all_commitments(subtensor, 138, ["hk0", "hk1"], priv)
+
+        assert endpoints["hk0"] == ("10.0.0.1", 8080)
+        assert "hk1" not in endpoints  # rejected due to hotkey mismatch
+
     def test_reuses_cache_when_block_unchanged(self):
         pub, priv = _generate_keypair()
-        ct = encrypt_endpoint("10.0.0.1", 8080, pub)
+        ct = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey="hk0")
 
         query_map_result = [
             ("hk0", self._make_commitment_data(ct, block=10)),
@@ -215,8 +252,8 @@ class TestReadAllCommitments:
 
     def test_re_decrypts_when_block_changes(self):
         pub, priv = _generate_keypair()
-        ct1 = encrypt_endpoint("10.0.0.1", 8080, pub)
-        ct2 = encrypt_endpoint("10.0.0.2", 9090, pub)
+        ct1 = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey="hk0")
+        ct2 = encrypt_endpoint("10.0.0.2", 9090, pub, hotkey="hk0")
 
         subtensor = MagicMock()
 
