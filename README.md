@@ -370,6 +370,23 @@ If you are running on runpod, please read instructions [here](#Using-Runpod)
 
 To setup and run a validator with Docker, see instructions [here](#Running-a-Miner-or-a-Validator-with-Docker).
 
+### Encrypted Endpoint Commitments
+
+Miner IP addresses are encrypted on-chain so they are not visible in the metagraph. Validators need a private key to decrypt miner endpoints.
+
+**Testnet** — The testnet private key is included in `env.example`. Make sure it is set in your environment:
+
+```
+export COMMITMENT_PRIVATE_KEY=d0e8b84e89b085e0157dec62680987274eb1f136c7b6ac5bb7b2a21cce533294
+```
+
+**Mainnet** — The mainnet private key is distributed securely to validators. Do NOT commit it to any repository or share it publicly. Set it in your environment before starting the validator:
+
+```
+export COMMITMENT_PRIVATE_KEY=<provided securely>
+```
+
+### Running a Validator
 
 ```
 python3 -m neurons.validator --subtensor.network test --netuid 138 --wallet.name <wallet name> --wallet.hotkey <hotkey name> --logging.debug --axon.port <port>

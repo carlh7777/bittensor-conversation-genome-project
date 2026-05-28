@@ -15,6 +15,7 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
+import os
 import time
 import torch
 import asyncio
@@ -97,10 +98,48 @@ class BaseMinerNeuron(BaseNeuron):
         # Check that miner is registered on the network.
         self.sync()
 
+        # Publish encrypted endpoint commitment if configured.
+        # When active, the real ip:port goes into the encrypted commitment only,
+        # and the metagraph gets a dummy address so the real endpoint stays hidden.
+        # Shared public key for encrypting endpoint commitments.
+        # Mainnet (netuid 33) and testnet use different keypairs.
+        # Can be overridden via COMMITMENT_PUBLIC_KEY env var.
+        _COMMITMENT_PUBLIC_KEYS = {
+            33: "aadbfa93972378fbc1bd8e854bc6fb915bb57506f56c17f0531647a127a0bd69",  # mainnet
+            138: "2c068a9b7c3480225ab56888227218228d803208f26bfbd8c875a919467a7516",  # testnet
+        }
+        default_key = _COMMITMENT_PUBLIC_KEYS.get(self.config.netuid, "")
+        commitment_pub_key_hex = os.environ.get("COMMITMENT_PUBLIC_KEY", default_key).strip()
+        if commitment_pub_key_hex:
+            try:
+                from conversationgenome.commitment.commitment import encrypt_endpoint, publish_commitment
+
+                # --axon.ip and --axon.port hold the user-specified values;
+                # external_ip/external_port may be auto-detected or None.
+                real_ip = self.axon.ip
+                real_port = self.axon.port
+                bt.logging.info(f"Real endpoint: {real_ip}:{real_port} — will be encrypted in commitment.")
+
+                public_key_bytes = bytes.fromhex(commitment_pub_key_hex)
+                hotkey_ss58 = self.wallet.hotkey.ss58_address
+                ciphertext = encrypt_endpoint(real_ip, real_port, public_key_bytes, hotkey=hotkey_ss58)
+                success = publish_commitment(self.subtensor, self.wallet, self.config.netuid, ciphertext)
+                if success:
+                    bt.logging.info(f"Encrypted endpoint commitment published successfully.")
+                else:
+                    bt.logging.warning(f"Encrypted endpoint commitment failed — will retry on next restart.")
+
+                # Serve blackhole address to metagraph so real endpoint is not visible
+                # 192.0.2.0/24 is TEST-NET-1 (RFC 5737), reserved and non-routable
+                self.axon.external_ip = "192.0.2.1"
+                self.axon.external_port = 1234
+                bt.logging.info(f"Serving dummy endpoint to metagraph.")
+            except Exception as e:
+                bt.logging.error(f"Error publishing encrypted commitment: {e}")
+
         # Serve passes the axon information to the network + netuid we are hosting on.
-        # This will auto-update if the axon port of external ip have changed.
         bt.logging.info(
-            f"Serving miner axon {self.axon} on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
+            f"Serving miner axon (external: {self.axon.external_ip}:{self.axon.external_port}) on network: {self.config.subtensor.chain_endpoint} with netuid: {self.config.netuid}"
         )
         self.axon.serve(netuid=self.config.netuid, subtensor=self.subtensor)
 
