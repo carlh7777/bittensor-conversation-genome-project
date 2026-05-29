@@ -32,6 +32,7 @@ import numpy as np
 import torch
 
 from conversationgenome.base.neuron import BaseNeuron
+from conversationgenome.ConfigLib import c
 from conversationgenome.mock.mock import MockDendrite
 from conversationgenome.utils.config import add_validator_args
 from conversationgenome.validator.ValidatorLib import ValidatorLib
@@ -360,7 +361,7 @@ class BaseValidatorNeuron(BaseNeuron):
 
     def refresh_miner_endpoints(self):
         """Read and decrypt encrypted endpoint commitments for all miners."""
-        private_key_hex = os.environ.get("COMMITMENT_PRIVATE_KEY", "").strip()
+        private_key_hex = c.get("env", "COMMITMENT_PRIVATE_KEY", "").strip()
         if not private_key_hex:
             return
 

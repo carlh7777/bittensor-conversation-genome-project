@@ -44,6 +44,23 @@ class Validator(BaseValidatorNeuron):
     """
 
     def __init__(self, config=None):
+        private_key_hex = c.get("env", "COMMITMENT_PRIVATE_KEY", "").strip()
+        if not private_key_hex:
+            bt.logging.error(
+                "COMMITMENT_PRIVATE_KEY is not set. Validators require it to read miner "
+                "endpoint commitments. Set it in your environment and restart. "
+                "Contact ReadyAI if you need help."
+            )
+            raise SystemExit(1)
+        try:
+            bytes.fromhex(private_key_hex)
+        except ValueError:
+            bt.logging.error(
+                "COMMITMENT_PRIVATE_KEY is set but is not valid hex. Check your environment "
+                "(see env.example) and restart."
+            )
+            raise SystemExit(1)
+
         super(Validator, self).__init__(config=config)
         c.set("system", "netuid", self.config.netuid)
 
@@ -64,7 +81,7 @@ class Validator(BaseValidatorNeuron):
             bt.logging.debug(f"Skipping commitment refresh for UID {uid} — last refresh was {int(now - last)}s ago.")
             return
 
-        private_key_hex = os.environ.get("COMMITMENT_PRIVATE_KEY", "").strip()
+        private_key_hex = c.get("env", "COMMITMENT_PRIVATE_KEY", "").strip()
         if not private_key_hex:
             return
 
