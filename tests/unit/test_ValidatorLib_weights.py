@@ -89,6 +89,42 @@ def test_get_raw_weights_distribution_with_burn():
     assert weights[burn_uid] == pytest.approx(np.max(weights))
 
 
+def test_get_raw_weights_baseline_for_eligible_zero_score_uids():
+    """Score-0 UIDs in the eligible set receive a small baseline weight; uneligible
+    score-0 UIDs (and the burn_uid) stay at zero."""
+    vl = ValidatorLib()
+
+    burn_uid = 4
+    burn_rate = 0.9
+
+    # UIDs 0,1,2 scored; 3 and 5 are zero. Pretend 3 is serving (eligible) and 5 isn't.
+    scores = np.array([0.2, 0.5, 0.3, 0.0, 0.0, 0.0], dtype=float)
+    eligible_uids = [0, 1, 2, 3]  # excludes 4 (burn) and 5 (not serving)
+
+    weights = vl.get_raw_weights(
+        scores=scores,
+        burn_uid=burn_uid,
+        burn_rate=burn_rate,
+        eligible_uids=eligible_uids,
+    )
+
+    assert weights[burn_uid] == pytest.approx(burn_rate, rel=1e-4)
+    assert weights[5] == pytest.approx(0.0)  # uneligible score-0 stays at zero
+    assert weights[3] > 0  # eligible score-0 gets baseline
+    assert weights[3] < weights[0]  # baseline is far below any cubic-scored weight
+    assert pytest.approx(1.0, rel=1e-4) == float(np.sum(np.abs(weights)))
+
+
+def test_get_raw_weights_no_baseline_when_eligible_uids_none():
+    """When eligible_uids is None (legacy callers), score-0 UIDs stay at zero."""
+    vl = ValidatorLib()
+
+    scores = np.array([0.2, 0.5, 0.3, 0.0], dtype=float)
+    weights = vl.get_raw_weights(scores=scores, burn_uid=2, burn_rate=0.5)
+
+    assert weights[3] == pytest.approx(0.0)
+
+
 def test_get_raw_weights_distribution_with_smaller_burn():
     vl = ValidatorLib()
 

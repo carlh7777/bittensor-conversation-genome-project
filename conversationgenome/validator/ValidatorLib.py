@@ -3,6 +3,7 @@ verbose = False
 import json
 import os
 from typing import Any
+from typing import Iterable
 from typing import Optional
 
 import numpy as np
@@ -172,11 +173,17 @@ class ValidatorLib:
 
         return y_scaled
 
+    # Smallest weight that survives the chain's u16 normalization is 1/65535.
+    # We use a slight multiple to keep some safety margin against rounding
+    # after the cubic-bucket renormalization step below.
+    BASELINE_WEIGHT = 5.0 / 65535.0
+
     def get_raw_weights(
         self,
         scores,
         burn_uid: Optional[int] = None,
         burn_rate: Optional[float] = 0.0,
+        eligible_uids: Optional[Iterable[int]] = None,
     ):
         if scores is None or scores.size == 0 or np.isnan(scores).any():
             bt.logging.error("Nan detected in Weights. Returning None.")
@@ -230,6 +237,19 @@ class ValidatorLib:
                 else:
                     bt.logging.error("Error in Weights calculation. Setting this UID to 0")
                     temp_weights[uid] = 0.0
+
+            # Baseline weight for serving non-validator UIDs that we have never
+            # scored, so they aren't permanently excluded from consensus on
+            # subnets where stake is concentrated in burn-only validators.
+            # Caller passes the eligible UID set (typically serving miners with
+            # check_uid_availability == True). Self and burn_uid are skipped.
+            if eligible_uids is not None:
+                eligible_set = {int(u) for u in eligible_uids}
+                if burn_uid is not None:
+                    eligible_set.discard(int(burn_uid))
+                for uid in eligible_set:
+                    if 0 <= uid < temp_weights.shape[0] and temp_weights[uid] == 0:
+                        temp_weights[uid] = self.BASELINE_WEIGHT
 
             sum_temp = float(np.sum(np.abs(temp_weights)))
             if sum_temp > 0:

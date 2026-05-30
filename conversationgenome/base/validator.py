@@ -35,6 +35,7 @@ from conversationgenome.base.neuron import BaseNeuron
 from conversationgenome.ConfigLib import c
 from conversationgenome.mock.mock import MockDendrite
 from conversationgenome.utils.config import add_validator_args
+from conversationgenome.utils.uids import check_uid_availability
 from conversationgenome.validator.ValidatorLib import ValidatorLib
 
 
@@ -306,7 +307,21 @@ class BaseValidatorNeuron(BaseNeuron):
         burn_uid = self.get_burn_uid()
         burn_rate = self.burn_rate
 
-        raw_weights = vl.get_raw_weights(self.scores, burn_uid=burn_uid, burn_rate=burn_rate)
+        # Eligible UIDs receive a tiny baseline weight even if their score is 0,
+        # so a miner that has never been sampled (or had a transient failure) is
+        # not permanently locked out of the cubic distribution. Filter matches
+        # the sampling filter in get_random_uids -> check_uid_availability.
+        eligible_uids = [
+            uid for uid in range(self.metagraph.n.item())
+            if check_uid_availability(self.metagraph, uid, self.config.neuron.vpermit_tao_limit)
+        ]
+
+        raw_weights = vl.get_raw_weights(
+            self.scores,
+            burn_uid=burn_uid,
+            burn_rate=burn_rate,
+            eligible_uids=eligible_uids,
+        )
 
         if raw_weights is None or raw_weights.size == 0:
             bt.logging.error("Error Generating raw weights. Returning without setting weights")
