@@ -244,6 +244,29 @@ async def test_forward_does_not_force_commitment_refresh(bare_validator, fake_li
     validator.refresh_miner_endpoints.assert_not_called()
 
 
+def test_init_refreshes_commitments_once_at_startup(monkeypatch):
+    """Validator.__init__ must perform a one-shot bulk commitment refresh
+    so committed_endpoints is populated before the first forward(). Without
+    this, fresh boots wait a full epoch before the periodic resync fires,
+    leaving every commitment miner unreachable."""
+    import neurons.validator as validator_module
+    from conversationgenome.base.validator import BaseValidatorNeuron
+
+    # Skip the heavy parent init.
+    monkeypatch.setattr(BaseValidatorNeuron, "__init__", lambda self, config=None: None)
+    monkeypatch.setattr(validator_module.c, "get", lambda *_a, **_k: "00" * 32)
+    monkeypatch.setattr(validator_module.c, "set", lambda *_a, **_k: None)
+
+    instance = validator_module.Validator.__new__(validator_module.Validator)
+    instance.config = type("C", (), {"netuid": 33, "neuron": type("N", (), {"sample_size": 6})()})()
+    instance.load_state = lambda: None
+    instance.refresh_miner_endpoints = MagicMock()
+
+    validator_module.Validator.__init__(instance)
+
+    instance.refresh_miner_endpoints.assert_called_once_with(force=True)
+
+
 def test_refresh_miner_endpoints_force_bypasses_debounce(bare_validator, monkeypatch):
     """refresh_miner_endpoints(force=True) must bypass the 5-min debounce."""
     import time as _time

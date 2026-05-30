@@ -71,6 +71,18 @@ class Validator(BaseValidatorNeuron):
         self.final_status_codes = {}
         self._uid_refresh_timestamps: dict = {}  # {uid: last_refresh_time}
 
+        # One-shot commitment refresh at startup so committed_endpoints is
+        # populated before the first forward(). We do NOT refresh on every
+        # forward (that stalls validators on slow chain endpoints), but the
+        # initial sync()/resync_metagraph() may not fire for a full epoch
+        # after boot — until then committed_endpoints would be empty and
+        # every commitment-style miner would unreachable via the metagraph
+        # placeholder axon.
+        try:
+            self.refresh_miner_endpoints(force=True)
+        except Exception as e:
+            bt.logging.warning(f"Initial commitment refresh failed: {e}")
+
     def _refresh_commitment_for_uid(self, uid):
         """Re-read and decrypt the commitment for a single miner UID. Debounced to 5 min per UID."""
         import time as _time
