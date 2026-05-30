@@ -22,6 +22,39 @@ class FakeStream:
         return self.buf.getvalue()
 
 
+class TestUrlAllowlist:
+    """Wandb's own infra URLs and other safe domains must survive scrubbing,
+    so the wandb init banner stays clickable in pm2 logs."""
+
+    def test_wandb_run_url_passes(self):
+        from conversationgenome.analytics._scrubber import scrub
+        out = scrub("View run at https://wandb.ai/cgp/validator-78-2.32.68")
+        assert "wandb.ai/cgp/validator-78-2.32.68" in out
+        assert "REDACTED" not in out
+
+    def test_wandb_docs_url_passes(self):
+        from conversationgenome.analytics._scrubber import scrub
+        out = scrub("see https://docs.wandb.ai/guides/track for info")
+        assert "docs.wandb.ai" in out
+
+    def test_github_url_passes(self):
+        from conversationgenome.analytics._scrubber import scrub
+        out = scrub("file a bug at https://github.com/afterpartyai/bittensor-conversation-genome-project/issues")
+        assert "github.com" in out
+
+    def test_unknown_url_is_redacted(self):
+        from conversationgenome.analytics._scrubber import scrub
+        out = scrub("calling http://18.119.135.29:8210/CgSynapse to score miner")
+        assert "18.119.135.29" not in out
+        assert "REDACTED_URL" in out
+
+    def test_unknown_https_url_is_redacted(self):
+        from conversationgenome.analytics._scrubber import scrub
+        out = scrub("reaching https://miner.somewhere.io:9000/foo")
+        assert "miner.somewhere.io" not in out
+        assert "REDACTED" in out
+
+
 class TestScrubbingStream:
     def test_drops_line_matching_drop_pattern(self):
         real = FakeStream()

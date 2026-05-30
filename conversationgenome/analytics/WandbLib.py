@@ -49,13 +49,6 @@ class WandbLib:
         self.run = None
         self.bt_logger_attached = False
 
-        # Install sys.stdout / sys.stderr scrubbers before W&B's console
-        # capture is wired up. Anything bittensor (or anything else) prints
-        # is filtered through the shared drop/redact rules first, so the
-        # W&B console feed and pm2 logs both see endpoint-free output.
-        from conversationgenome.analytics._scrubber import install_stdio_scrubbers
-        install_stdio_scrubbers()
-
         self._initialized = True
 
     def init_wandb(self, config=None, data=None):
@@ -114,12 +107,6 @@ class WandbLib:
 
         current_timestamp_ms = int(time.time() * 1000)
 
-        # Endpoint privacy: rather than disable W&B's console capture
-        # (console="off") — which wipes out all useful streaming output —
-        # we let W&B keep capturing stdout/stderr, and install scrubbing
-        # wrappers around sys.stdout / sys.stderr earlier so the captured
-        # text has miner endpoints already redacted. Same protection,
-        # observability preserved.
         self.run = wandb.init(
             project=self.PROJECT_NAME,
             name=f"{self.run_name_prefix}-{current_timestamp_ms}",  # f"conversationgenome/cguid_{c_guid}",
@@ -127,6 +114,16 @@ class WandbLib:
             config=self.run_config,
             reinit=True,
         )
+
+        # Install stdio scrubbers AFTER wandb.init. Ordering matters:
+        # wandb wraps sys.stdout/stderr during init to start its console
+        # capture. If we wrap first, wandb's capture binds to a stream
+        # nothing is writing to (output.log ends up 0 bytes). By wrapping
+        # after wandb, the chain becomes:
+        #   write → our scrubber → wandb's capture → real fd
+        # so both wandb's "Logs" tab and pm2 see the scrubbed text.
+        from conversationgenome.analytics._scrubber import install_stdio_scrubbers
+        install_stdio_scrubbers()
 
         # Nothing logged yet
         self.log_line_count = 0

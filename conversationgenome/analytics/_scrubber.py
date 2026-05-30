@@ -22,6 +22,29 @@ _IPV6_RE = re.compile(r"\[?[A-Fa-f0-9:]*::[A-Fa-f0-9:]+\]?(?::\d{1,5})?")
 # Any URL: scheme://host... whitespace-terminated.
 _URL_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"<>]+")
 
+# Hostnames that are safe to leave un-redacted. These never carry miner
+# endpoint information — they're infra/docs/UI links we actively want to
+# remain clickable in logs (e.g. the wandb run URL printed at init).
+_URL_HOST_ALLOWLIST = (
+    "wandb.ai",
+    "wandb.com",
+    "wandb.io",
+    "github.com",
+    "anthropic.com",
+    "opentensor.ai",
+    "bittensor.com",
+    "conversations.xyz",   # CGP backend; not a miner
+)
+
+
+def _redact_url(match: re.Match) -> str:
+    url = match.group(0)
+    # Cheap allowlist check — any allowed host substring inside the URL means
+    # it's safe to keep verbatim.
+    if any(host in url for host in _URL_HOST_ALLOWLIST):
+        return url
+    return "[REDACTED_URL]"
+
 # Dotted hostname:port (e.g. miner.example.com:8080).
 _HOSTPORT_RE = re.compile(
     r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[A-Za-z]{2,}:\d{1,5}\b"
@@ -64,7 +87,7 @@ def scrub(message: str) -> str:
     `http://1.2.3.4:5/CgSynapse` becomes one redaction token, then narrower
     IP/host patterns mop up bare cases.
     """
-    message = _URL_RE.sub("[REDACTED_URL]", message)
+    message = _URL_RE.sub(_redact_url, message)
     message = _IPV4_RE.sub("[REDACTED_ENDPOINT]", message)
     message = _IPV6_RE.sub("[REDACTED_ENDPOINT]", message)
     message = _HOSTPORT_RE.sub("[REDACTED_ENDPOINT]", message)
