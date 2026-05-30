@@ -359,16 +359,27 @@ class BaseValidatorNeuron(BaseNeuron):
         else:
             bt.logging.error(f"set_weights failed: {msg}")
 
-    def refresh_miner_endpoints(self):
-        """Read and decrypt encrypted endpoint commitments for all miners."""
+    def refresh_miner_endpoints(self, force: bool = False):
+        """Read and decrypt encrypted endpoint commitments for all miners.
+
+        Args:
+            force: If True, bypass the 5-minute debounce. Use at the start of
+                each forward() loop to guarantee freshness before sampling
+                miners. The chain query (query_map) is debounced cheaply by
+                block-number caching inside read_all_commitments, so forcing
+                here only re-fetches the map (~tens of ms) and re-decrypts
+                only entries whose block changed.
+        """
         private_key_hex = c.get("env", "COMMITMENT_PRIVATE_KEY", "").strip()
         if not private_key_hex:
             return
 
-        # Skip if we refreshed less than 5 minutes ago
+        # 5-min debounce protects against thrashing when resync_metagraph fires
+        # frequently; callers that need fresh state at a specific moment can
+        # pass force=True (e.g. before a new forward loop dispatches synapses).
         import time as _time
         now = _time.time()
-        if now - self._last_commitment_refresh < 300:
+        if not force and now - self._last_commitment_refresh < 300:
             bt.logging.info(f"Skipping commitment refresh — last refresh was {int(now - self._last_commitment_refresh)}s ago.")
             return
         self._last_commitment_refresh = now

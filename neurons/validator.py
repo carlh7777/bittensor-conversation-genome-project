@@ -135,6 +135,13 @@ class Validator(BaseValidatorNeuron):
 
     async def forward(self, test_mode=False):
         try:
+            # Pull fresh chain commitments before we sample miners. This is
+            # in addition to the periodic refresh in resync_metagraph — we
+            # want the freshest possible endpoint map at dispatch time so a
+            # commitment that was just published lands in this loop, not the
+            # next. force=True bypasses the per-method 5 min debounce.
+            self.refresh_miner_endpoints(force=True)
+
             wl = WandbLib()
 
             miners_per_task = c.get("validator", "miners_per_task", 6)
@@ -254,7 +261,11 @@ class Validator(BaseValidatorNeuron):
                     print("RAW RESPONSES", len(responses))
                     print(responses)
 
-                # Generate retry lists
+                # Generate refresh and retry lists.
+                # Refresh policy: any non-success outcome
+                # Retry policy: 408/422/503 and connection-level failures (None)
+                RETRY_STATUS_CODES = {408, 422, 503, None}
+
                 uids_to_retry = []
                 for i, response in enumerate(responses):
                     status_code = getattr(response.dendrite, "status_code", None)
@@ -262,14 +273,23 @@ class Validator(BaseValidatorNeuron):
                     if status_code is not None:
                         self.initial_status_codes[status_code] = self.initial_status_codes.get(status_code, 0) + 1
 
-                        if status_code in [408, 422, 503]:
-                            self._refresh_commitment_for_uid(miner_uids[i])
-                            uids_to_retry.append(miner_uids[i])
-                            bt.logging.info(f"{status_code} for UID {miner_uids[i]} — refreshing commitment and retrying.")
+                    has_output = bool(getattr(response, "cgp_output", None))
+                    is_success = status_code == 200 and has_output
+
+                    if not is_success:
+                        self._refresh_commitment_for_uid(miner_uids[i])
+
+                    if status_code in RETRY_STATUS_CODES and not is_success:
+                        uids_to_retry.append(miner_uids[i])
+                        bt.logging.info(
+                            f"status={status_code} output={has_output} for UID {miner_uids[i]} "
+                            "— refreshing commitment and retrying."
+                        )
 
                 uid_to_index = {uid: idx for idx, uid in enumerate(miner_uids)}
 
-                # Retry with the same synapse for 408/422
+                # Retry only the UIDs whose failure mode might benefit from
+                # a second attempt against a refreshed endpoint.
                 if uids_to_retry:
                     bt.logging.debug(f"Retrying requests for the following UIDs (same synapse): {uids_to_retry}")
 

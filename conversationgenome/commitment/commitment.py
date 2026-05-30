@@ -4,6 +4,34 @@ import bittensor as bt
 import nacl.exceptions
 from nacl.public import PrivateKey, PublicKey, SealedBox
 
+try:
+    from async_substrate_interface.utils.ss58 import ss58_encode  # type: ignore
+except ImportError:
+    try:
+        from substrateinterface.utils.ss58 import ss58_encode  # type: ignore
+    except ImportError:
+        from scalecodec.utils.ss58 import ss58_encode  # type: ignore
+
+
+_SS58_FORMAT = 42
+
+
+def _key_to_ss58(hotkey) -> str:
+    """Normalize a query_map key (AccountId32) to an SS58 string.
+
+    query_map returns the AccountId as ((b0, ..., b31),) on newer substrate
+    layers; older versions return an SS58 string directly. Both shapes flow
+    through this helper.
+    """
+    if isinstance(hotkey, str):
+        return hotkey
+    if isinstance(hotkey, (bytes, bytearray)):
+        return ss58_encode(bytes(hotkey), ss58_format=_SS58_FORMAT)
+    if isinstance(hotkey, tuple):
+        inner = hotkey[0] if len(hotkey) == 1 and isinstance(hotkey[0], (tuple, list, bytes, bytearray)) else hotkey
+        return ss58_encode(bytes(inner), ss58_format=_SS58_FORMAT)
+    return ss58_encode(bytes(hotkey), ss58_format=_SS58_FORMAT)
+
 
 def encrypt_endpoint(ip: str, port: int, public_key_bytes: bytes, hotkey: str = "") -> bytes:
     """Encrypt hotkey|ip:port using a NaCl sealed box.
@@ -127,7 +155,7 @@ def read_all_commitments(
     reused = 0
 
     for hotkey, commitment_data in result:
-        hotkey_str = str(hotkey)
+        hotkey_str = _key_to_ss58(hotkey)
         if hotkey_str not in hotkey_set:
             continue
 

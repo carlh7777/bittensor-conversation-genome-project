@@ -269,6 +269,95 @@ class TestReadAllCommitments:
         assert endpoints2["hk0"] == ("10.0.0.2", 9090)
 
 
+# ── real query_map key shape ─────────────────────────────────────────
+#
+# Regression guard for the bug where read_all_commitments filtered every row
+# because real Substrate query_map returns AccountId32 as ((b0..b31),) tuples,
+# not SS58 strings. Previous tests mocked the keys as plain strings ("hk0"),
+# which doesn't reflect chain reality, and the bug shipped to production.
+#
+# These tests reproduce the real shape so the filter is exercised correctly.
+
+try:
+    from async_substrate_interface.utils.ss58 import ss58_encode
+except ImportError:
+    try:
+        from substrateinterface.utils.ss58 import ss58_encode
+    except ImportError:
+        from scalecodec.utils.ss58 import ss58_encode
+
+
+class TestReadAllCommitmentsChainKeyShape:
+    @staticmethod
+    def _make_commitment_data(ciphertext, block=100):
+        return {"block": block, "info": {"fields": [[{f"Raw{len(ciphertext)}": [list(ciphertext)]}]]}}
+
+    @staticmethod
+    def _account_id_bytes_to_ss58(raw: bytes) -> str:
+        return ss58_encode(raw, ss58_format=42)
+
+    def _make_chain_key(self, raw: bytes):
+        """Return the ((b0..b31),) tuple shape that real query_map yields."""
+        return (tuple(raw),)
+
+    def test_decodes_account_id_tuple_key(self):
+        """query_map keys arriving as ((b0..b31),) must decode to SS58 and match."""
+        pub, priv = _generate_keypair()
+        raw = bytes(range(32))
+        ss58 = self._account_id_bytes_to_ss58(raw)
+        ct = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey=ss58)
+
+        subtensor = MagicMock()
+        subtensor.query_map.return_value = [
+            (self._make_chain_key(raw), self._make_commitment_data(ct, block=10)),
+        ]
+
+        endpoints, cache = read_all_commitments(subtensor, 138, [ss58], priv)
+
+        assert endpoints[ss58] == ("10.0.0.1", 8080), (
+            "AccountId tuple key was not decoded to SS58 — read_all_commitments "
+            "would silently filter every row in production."
+        )
+        assert ss58 in cache
+
+    def test_decodes_account_id_bytes_key(self):
+        """Some substrate layers return raw bytes instead of a tuple-wrapped tuple."""
+        pub, priv = _generate_keypair()
+        raw = bytes(range(32, 64))
+        ss58 = self._account_id_bytes_to_ss58(raw)
+        ct = encrypt_endpoint("10.0.0.2", 9090, pub, hotkey=ss58)
+
+        subtensor = MagicMock()
+        subtensor.query_map.return_value = [
+            (raw, self._make_commitment_data(ct, block=10)),
+        ]
+
+        endpoints, _ = read_all_commitments(subtensor, 138, [ss58], priv)
+        assert endpoints[ss58] == ("10.0.0.2", 9090)
+
+    def test_stale_chain_keys_are_filtered(self):
+        """Commitments on chain for hotkeys no longer in the metagraph must be filtered."""
+        pub, priv = _generate_keypair()
+        live_raw = bytes(range(0, 32))
+        stale_raw = bytes(range(64, 96))
+        live_ss58 = self._account_id_bytes_to_ss58(live_raw)
+        stale_ss58 = self._account_id_bytes_to_ss58(stale_raw)
+        ct_live = encrypt_endpoint("10.0.0.1", 8080, pub, hotkey=live_ss58)
+        ct_stale = encrypt_endpoint("10.0.0.2", 9090, pub, hotkey=stale_ss58)
+
+        subtensor = MagicMock()
+        subtensor.query_map.return_value = [
+            (self._make_chain_key(live_raw), self._make_commitment_data(ct_live, block=10)),
+            (self._make_chain_key(stale_raw), self._make_commitment_data(ct_stale, block=10)),
+        ]
+
+        # Only live_ss58 is in the metagraph
+        endpoints, _ = read_all_commitments(subtensor, 138, [live_ss58], priv)
+
+        assert live_ss58 in endpoints
+        assert stale_ss58 not in endpoints
+
+
 # ── validator integration ────────────────────────────────────────────
 
 class TestValidatorIntegration:
