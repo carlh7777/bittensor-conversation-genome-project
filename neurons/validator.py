@@ -135,12 +135,15 @@ class Validator(BaseValidatorNeuron):
 
     async def forward(self, test_mode=False):
         try:
-            # Pull fresh chain commitments before we sample miners. This is
-            # in addition to the periodic refresh in resync_metagraph — we
-            # want the freshest possible endpoint map at dispatch time so a
-            # commitment that was just published lands in this loop, not the
-            # next. force=True bypasses the per-method 5 min debounce.
-            self.refresh_miner_endpoints(force=True)
+            # NOTE: deliberately no forced commitment refresh here. Refresh
+            # happens in two existing paths that are sufficient and don't
+            # block the loop on every iteration:
+            #   1. resync_metagraph()'s periodic refresh (debounced 5 min)
+            #   2. _refresh_commitment_for_uid on per-UID errors after a
+            #      failed call (so a stale endpoint self-heals on retry)
+            # Forcing refresh every forward stalls the async loop on slow
+            # chain endpoints (e.g. public finney), causing dendrite calls
+            # to time out en masse for validators not running a local node.
 
             wl = WandbLib()
 

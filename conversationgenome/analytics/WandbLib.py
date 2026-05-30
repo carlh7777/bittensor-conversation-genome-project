@@ -107,17 +107,12 @@ class WandbLib:
 
         current_timestamp_ms = int(time.time() * 1000)
 
-        # IMPORTANT: console="off" disables W&B's default stdout/stderr
-        # capture. Without this, bittensor's dendrite errors (which include
-        # decrypted miner endpoints) leak into the W&B run via the console
-        # channel, bypassing WandbCountingHandler's filter entirely.
         self.run = wandb.init(
             project=self.PROJECT_NAME,
             name=f"{self.run_name_prefix}-{current_timestamp_ms}",  # f"conversationgenome/cguid_{c_guid}",
             entity=self.ENTITY,
             config=self.run_config,
             reinit=True,
-            settings=wandb.Settings(console="off"),
         )
 
         # Nothing logged yet

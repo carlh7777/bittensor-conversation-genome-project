@@ -223,22 +223,25 @@ async def test_forward_retries_on_status_code(bare_validator, fake_libs, monkeyp
 # ─── forced bulk refresh at start of forward ─────────────────────────
 
 @pytest.mark.asyncio
-async def test_forward_forces_commitment_refresh_at_start(bare_validator, fake_libs, monkeypatch):
-    """Every forward() call must force a bulk commitment refresh before
-    sampling miners. This guarantees a commitment published 1 second ago
-    is honored in this loop, not the next."""
+async def test_forward_does_not_force_commitment_refresh(bare_validator, fake_libs, monkeypatch):
+    """forward() must NOT call refresh_miner_endpoints itself.
+
+    Refresh happens in resync_metagraph (periodic, debounced) and in
+    _refresh_commitment_for_uid (on per-UID errors). Forcing refresh every
+    forward stalls the async loop for validators on slow chain endpoints,
+    causing en-masse dendrite timeouts (observed in production on
+    operators using public finney).
+    """
     validator = bare_validator
     validator.config.neuron.sample_size = 3
     validator.metagraph.n.item.return_value = 3
 
-    # Reserve_task_bundle returns None so forward() exits early — we don't
-    # care about the loop body, only that refresh fired before it.
     fake_libs["vl"].reserve_task_bundle = AsyncMock(return_value=None)
     validator.refresh_miner_endpoints = MagicMock()
 
     await validator.forward(test_mode=True)
 
-    validator.refresh_miner_endpoints.assert_called_once_with(force=True)
+    validator.refresh_miner_endpoints.assert_not_called()
 
 
 def test_refresh_miner_endpoints_force_bypasses_debounce(bare_validator, monkeypatch):
