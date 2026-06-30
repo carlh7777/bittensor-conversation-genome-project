@@ -107,7 +107,7 @@ class BaseValidatorNeuron(BaseNeuron):
         self.nonlinear_power = 3.0
 
         # Burn rate -> burns 90% of the emissions.
-        self.burn_rate = 0.9
+        self.burn_rate = 0
 
         # Committed endpoint cache: {hotkey_ss58: (ip, port)}
         self.committed_endpoints: Dict[str, Tuple[str, int]] = {}

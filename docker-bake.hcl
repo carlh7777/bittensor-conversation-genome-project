@@ -1,23 +1,11 @@
-target "miner_arm" {
+target "miner" {
   context = "."
   dockerfile = "Dockerfile"
 
-  platforms = ["linux/arm64"]
+  platforms = ["linux/amd64", "linux/arm64"]
   tags = [
-    "readyai/bittensor-readyai-sn33:arm64-2.10.0",
+    "readyai/bittensor-readyai-sn33:2.33.69",
   ]
 
-  push = true
-}
-
-target "miner_x86" {
-  context = "."
-  dockerfile = "Dockerfile"
-
-  platforms = ["linux/amd64"]
-  tags = [
-    "readyai/bittensor-readyai-sn33:amd64-2.10.0",
-  ]
-  
-  push = true
+  output = ["type=registry"]
 }

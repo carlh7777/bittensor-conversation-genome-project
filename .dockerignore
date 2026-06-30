@@ -1,3 +1,11 @@
 .env
 .env*
 readyai_api_data.json
+venv/
+.git/
+.pytest_cache/
+.dependencies_installed
+.claude/
+.circleci/
+.github/
+pr-message.md
