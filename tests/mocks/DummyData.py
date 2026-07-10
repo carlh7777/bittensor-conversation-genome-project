@@ -400,6 +400,62 @@ class DummyData:
         }
 
     @staticmethod
+    def skill_generation_task_bundle_json():
+        skill_payload = json.dumps({
+            "seed": "Skill to parse .docx files",
+            "skill_markdown": "# Parse .docx\n\nInstructions to parse docx files with python.",
+            "enrichment": {},
+        })
+        return {
+            "mode": "validator",
+            "api_version": 1.4,
+            "type": "skill_generation",
+            "scoring_mechanism": "ground_truth_tag_similarity_scoring",
+            "input": {
+                "input_type": "skill",
+                "guid": DummyData.guid(),
+                "input_categories": None,
+                "data": {
+                    "lines": [(0, skill_payload)],
+                    "total": 1,
+                    "participants": ["UNKNOWN_SPEAKER"],
+                },
+                "metadata": DummyData.metadata()
+            },
+            "prompt_chain": [
+                {
+                    "step": 0,
+                    "id": "skill_001",
+                    "crc": 32132177,
+                    "title": "Infer descriptive tags for a skill document",
+                    "name": "infer_tags_for_skill",
+                    "description": "Returns descriptive tags summarizing the provided skill document.",
+                    "type": "inference",
+                    "input_path": "skill",
+                    "prompt_template": "You are given an LLM skill document written in Markdown. Analyze the skill to identify the core topics, technologies, and capabilities it covers. Return only a flat list of tags in lowercase, separated by commas, with no explanations, formatting, or extra text. Example of required format: tag1, tag2, tag3",
+                    "output_variable": "final_output",
+                    "output_type": "List[str]",
+                }
+            ],
+            "example_output": {"tags": ["docx", "parsing", "python"], "type": "List[str]"},
+            "errors": [],
+            "warnings": [],
+            "guid": DummyData.guid(),
+            "data_type": 1,
+        }
+
+    @staticmethod
+    def skill_generation_task_bundle() -> TaskBundle:
+        return try_parse_task_bundle(DummyData.skill_generation_task_bundle_json())
+
+    @staticmethod
+    def setup_skill_generation_task_bundle() -> TaskBundle:
+        task_bundle = try_parse_task_bundle(DummyData.skill_generation_task_bundle_json())
+        task_bundle.input.data.indexed_windows = DummyData.windows()
+        task_bundle.input.metadata = DummyData.metadata()
+        return task_bundle
+
+    @staticmethod
     def webpage_metadata_generation_task_bundle() -> TaskBundle:
         return try_parse_task_bundle(DummyData.webpage_metadata_generation_task_bundle_json())
 

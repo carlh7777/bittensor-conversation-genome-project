@@ -207,6 +207,22 @@ class LlmLib(ABC):
             vectors = self.get_vector_embeddings_set(tags)
         return RawMetadata(tags=tags, vectors=vectors, success=True)
 
+    def skill_to_metadata(self, skill_markdown: str, generateEmbeddings=False, input_categories=None) -> RawMetadata|None:
+        prompt = prompt_manager.skill_to_metadata_prompt(skill_markdown)
+        response_content = self.basic_prompt(prompt)
+        if not isinstance(response_content, str):
+            print("Error: Unexpected response format. Content type:", type(response_content))
+            return None
+        tags = Utils.clean_tags(response_content.split(","))
+        if Utils.empty(tags):
+            print("No tags returned")
+            return None
+
+        vectors = None
+        if generateEmbeddings:
+            vectors = self.get_vector_embeddings_set(tags)
+        return RawMetadata(tags=tags, vectors=vectors, success=True)
+
     def enrichment_to_metadata(self, enrichment_content: str, generateEmbeddings=False, input_categories=None) -> RawMetadata|None:
         if input_categories and 'coding' in input_categories:
             prompt = prompt_manager.enrichment_to_metadata_coding_prompt(enrichment_content)

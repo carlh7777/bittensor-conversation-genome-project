@@ -19,9 +19,10 @@ def _get_task_bundle_adapter() -> TypeAdapter:
     from conversationgenome.task_bundle.WebpageMetadataGenerationTaskBundle import WebpageMetadataGenerationTaskBundle
     from conversationgenome.task_bundle.SurveyTaggingTaskBundle import SurveyTaggingTaskBundle
     from conversationgenome.task_bundle.NamedEntitiesExtractionTaskBundle import NamedEntitiesExtractionTaskBundle
+    from conversationgenome.task_bundle.SkillGenerationTaskBundle import SkillGenerationTaskBundle
 
     TaskBundleUnion = Annotated[
-        Union[ConversationTaggingTaskBundle, WebpageMetadataGenerationTaskBundle, SurveyTaggingTaskBundle, NamedEntitiesExtractionTaskBundle],
+        Union[ConversationTaggingTaskBundle, WebpageMetadataGenerationTaskBundle, SurveyTaggingTaskBundle, NamedEntitiesExtractionTaskBundle, SkillGenerationTaskBundle],
         Field(discriminator="type"),
     ]
     _TASK_BUNDLE_ADAPTER = TypeAdapter(TaskBundleUnion)

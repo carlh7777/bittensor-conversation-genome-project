@@ -60,6 +60,11 @@ class PromptManager:
             raise ValueError("website_content cannot be empty.")
         return self._get("website_to_metadata_coding.j2", website_content=website_content)
 
+    def skill_to_metadata_prompt(self, skill_markdown: str) -> str:
+        if not skill_markdown.strip():
+            raise ValueError("skill_markdown cannot be empty.")
+        return self._get("skill_to_metadata.j2", skill_markdown=skill_markdown)
+
     def enrichment_to_metadata_prompt(self, enrichment_content: str) -> str:
         if not enrichment_content.strip():
             raise ValueError("enrichment_content cannot be empty.")
