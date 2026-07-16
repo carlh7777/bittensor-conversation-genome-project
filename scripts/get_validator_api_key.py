@@ -55,7 +55,7 @@ class ReadyAiApiLib():
 
 
     def get_validator_info(self, ss58_coldkey=None, ss58_hotkey=None, netuid=1, verbose=False):
-        subnet = bt.metagraph(netuid, network=self.network)
+        subnet = bt.Metagraph(netuid, network=self.network)
         if ss58_coldkey and not ss58_coldkey in subnet.coldkeys:
             print(f"{RED}Coldkey {ss58_coldkey} not registered on subnet. Aborting.{COLOR_END}")
             if self.verbose or verbose:
@@ -211,7 +211,7 @@ class ReadyAiApiLib():
 
 
     def get_coldkey_object(self, name, path):
-        wallet = bt.wallet(name=name, path=path)
+        wallet = bt.Wallet(name=name, path=path)
         try:
             coldkey = wallet.get_coldkey()
         except Exception as e:
@@ -220,7 +220,7 @@ class ReadyAiApiLib():
         return coldkey
 
     def get_hotkey_object(self, coldkey_name, hotkey_name, path):
-        wallet = bt.wallet(name=coldkey_name, hotkey=hotkey_name, path=path)
+        wallet = bt.Wallet(name=coldkey_name, hotkey=hotkey_name, path=path)
         try:
             hotkey = wallet.get_hotkey()
         except Exception as e:

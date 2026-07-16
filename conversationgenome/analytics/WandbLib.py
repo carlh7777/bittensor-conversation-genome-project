@@ -64,8 +64,8 @@ class WandbLib:
         if config:
             # initialize data:
             try:
-                wallet = bt.wallet(config=config)
-                subtensor = bt.subtensor(config=config)
+                wallet = bt.Wallet(config=config)
+                subtensor = bt.Subtensor(config=config)
                 netuid = config.netuid
                 metagraph = subtensor.metagraph(config.netuid)
                 my_hotkey = wallet.hotkey.ss58_address

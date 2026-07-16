@@ -24,8 +24,8 @@ default_prompt_value = "Analyze conversation in terms of topic interests of the 
 
 @pytest.fixture
 def validator_with_mock_metagraph():
-    with patch("conversationgenome.base.neuron.MockMetagraph") as mock_metagraph_class, patch("bittensor.subtensor") as mock_subtensor_class, patch(
-        "bittensor.wallet"
+    with patch("conversationgenome.base.neuron.MockMetagraph") as mock_metagraph_class, patch("bittensor.Subtensor") as mock_subtensor_class, patch(
+        "bittensor.Wallet"
     ) as mock_wallet_class:
 
         # Wallet

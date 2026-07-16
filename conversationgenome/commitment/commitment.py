@@ -65,8 +65,16 @@ def decrypt_endpoint(ciphertext: bytes, private_key_bytes: bytes, expected_hotke
 
 
 def publish_commitment(subtensor, wallet, netuid: int, ciphertext: bytes) -> bool:
-    """Publish encrypted endpoint ciphertext on-chain via publish_metadata."""
-    from bittensor.core.extrinsics.serving import publish_metadata
+    """Publish encrypted endpoint ciphertext on-chain via publish_metadata.
+
+    bittensor 10.x renamed publish_metadata → publish_metadata_extrinsic; the
+    call signature is unchanged, so we import whichever the installed version
+    exposes (10.x first, 9.x fallback).
+    """
+    try:
+        from bittensor.core.extrinsics.serving import publish_metadata_extrinsic as publish_metadata
+    except ImportError:
+        from bittensor.core.extrinsics.serving import publish_metadata
 
     try:
         publish_metadata(
@@ -89,27 +97,61 @@ def publish_commitment(subtensor, wallet, netuid: int, ciphertext: bytes) -> boo
 
 
 def read_commitment(subtensor, netuid: int, hotkey_ss58: str) -> Optional[bytes]:
-    """Read a single miner's encrypted commitment from chain."""
-    from bittensor.core.extrinsics.serving import get_metadata
+    """Read a single miner's encrypted commitment from chain.
 
+    Queries the Commitments.CommitmentOf storage directly. This replaces the
+    old bittensor.core.extrinsics.serving.get_metadata helper, which was
+    removed in bittensor 10.x; the direct query works on both 9.x and 10.x.
+    """
     try:
-        metadata = get_metadata(subtensor, netuid, hotkey_ss58)
+        metadata = subtensor.substrate.query(
+            module="Commitments",
+            storage_function="CommitmentOf",
+            params=[netuid, hotkey_ss58],
+        )
         if metadata is None:
             return None
-        commitment = metadata["info"]["fields"][0][0]
-        raw_key = next(iter(commitment.keys()))
-        return bytes(commitment[raw_key][0])
+        return _extract_ciphertext(metadata)
     except Exception as e:
         bt.logging.debug(f"Could not read commitment for {hotkey_ss58}: {e}")
         return None
 
 
+def _raw_field_to_bytes(value) -> Optional[bytes]:
+    """Normalize a Commitments Raw{N} field value to bytes.
+
+    The on-chain value decodes differently across substrate stacks:
+      - bittensor 10.x (async-substrate-interface 2.x): a hex string '0x...'
+      - bittensor 9.x: a nested byte list, e.g. [[b0, b1, ...]]
+      - occasionally already bytes
+    """
+    if isinstance(value, str):
+        return bytes.fromhex(value[2:] if value.startswith("0x") else value)
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, (list, tuple)):
+        inner = value
+        if len(value) == 1 and isinstance(value[0], (list, tuple, bytes, bytearray, str)):
+            inner = value[0]
+        if isinstance(inner, str):
+            return bytes.fromhex(inner[2:] if inner.startswith("0x") else inner)
+        return bytes(inner)
+    return None
+
+
 def _extract_ciphertext(commitment_data) -> Optional[bytes]:
-    """Extract ciphertext bytes from a commitment data structure."""
+    """Extract ciphertext bytes from a commitment data structure.
+
+    Handles both the bittensor 9.x shape (fields -> [[{RawN: [[...]]}]]) and the
+    10.x shape (fields -> [{RawN: '0x...'}]), and unwraps ScaleObj via .value.
+    """
     try:
-        commitment = commitment_data["info"]["fields"][0][0]
-        raw_key = next(iter(commitment.keys()))
-        return bytes(commitment[raw_key][0])
+        data = commitment_data.value if hasattr(commitment_data, "value") else commitment_data
+        entry = data["info"]["fields"][0]
+        if isinstance(entry, (list, tuple)):
+            entry = entry[0]
+        raw_key = next(iter(entry.keys()))
+        return _raw_field_to_bytes(entry[raw_key])
     except Exception:
         return None
 
@@ -159,7 +201,8 @@ def read_all_commitments(
         if hotkey_str not in hotkey_set:
             continue
 
-        block = commitment_data.get("block", 0) if hasattr(commitment_data, "get") else 0
+        data = commitment_data.value if hasattr(commitment_data, "value") else commitment_data
+        block = data.get("block", 0) if hasattr(data, "get") else 0
 
         # If block hasn't changed, reuse cached decryption
         if hotkey_str in cache and cache[hotkey_str][0] == block:
