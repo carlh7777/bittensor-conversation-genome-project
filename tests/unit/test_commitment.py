@@ -13,6 +13,17 @@ from conversationgenome.commitment.commitment import (
     read_commitment,
 )
 
+# publish_commitment imports publish_metadata_extrinsic on bittensor 10.x and
+# falls back to publish_metadata on 9.x. Patch whichever the installed version
+# actually exposes so these tests pass on either (matches the code's fallback).
+import bittensor.core.extrinsics.serving as _bt_serving
+
+_PUBLISH_TARGET = "bittensor.core.extrinsics.serving." + (
+    "publish_metadata_extrinsic"
+    if hasattr(_bt_serving, "publish_metadata_extrinsic")
+    else "publish_metadata"
+)
+
 
 # ── helpers ──────────────────────────────────────────────────────────
 
@@ -89,9 +100,7 @@ class TestEncryptDecrypt:
 
 class TestPublishCommitment:
     def test_success(self):
-        with patch(
-            "bittensor.core.extrinsics.serving.publish_metadata_extrinsic"
-        ) as mock_pub:
+        with patch(_PUBLISH_TARGET) as mock_pub:
             result = publish_commitment(
                 subtensor=MagicMock(),
                 wallet=MagicMock(),
@@ -105,10 +114,7 @@ class TestPublishCommitment:
             assert call_kwargs["data"] == b"\x01" * 69
 
     def test_rate_limit_returns_false(self):
-        with patch(
-            "bittensor.core.extrinsics.serving.publish_metadata_extrinsic",
-            side_effect=Exception("rate limit exceeded"),
-        ):
+        with patch(_PUBLISH_TARGET, side_effect=Exception("rate limit exceeded")):
             result = publish_commitment(
                 subtensor=MagicMock(),
                 wallet=MagicMock(),
@@ -118,10 +124,7 @@ class TestPublishCommitment:
             assert result is False
 
     def test_generic_error_returns_false(self):
-        with patch(
-            "bittensor.core.extrinsics.serving.publish_metadata_extrinsic",
-            side_effect=Exception("something broke"),
-        ):
+        with patch(_PUBLISH_TARGET, side_effect=Exception("something broke")):
             result = publish_commitment(
                 subtensor=MagicMock(),
                 wallet=MagicMock(),

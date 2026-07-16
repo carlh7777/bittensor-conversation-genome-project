@@ -1,6 +1,6 @@
 # Core dependencies
 python-dotenv==1.0.1
-bittensor==9.0.0
+bittensor==10.3.0
 torch==2.1.1
 openai==1.30.3
 loguru==0.7.0
@@ -14,5 +14,5 @@ pytest-asyncio
 pydantic==2.7.1
 typing-extensions==4.8.0
 httpx==0.27.2
-async-substrate-interface==1.6.4
+async-substrate-interface==2.0.2
 pynacl==1.6.2
