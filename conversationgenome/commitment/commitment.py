@@ -111,20 +111,47 @@ def read_commitment(subtensor, netuid: int, hotkey_ss58: str) -> Optional[bytes]
         )
         if metadata is None:
             return None
-        commitment = metadata["info"]["fields"][0][0]
-        raw_key = next(iter(commitment.keys()))
-        return bytes(commitment[raw_key][0])
+        return _extract_ciphertext(metadata)
     except Exception as e:
         bt.logging.debug(f"Could not read commitment for {hotkey_ss58}: {e}")
         return None
 
 
+def _raw_field_to_bytes(value) -> Optional[bytes]:
+    """Normalize a Commitments Raw{N} field value to bytes.
+
+    The on-chain value decodes differently across substrate stacks:
+      - bittensor 10.x (async-substrate-interface 2.x): a hex string '0x...'
+      - bittensor 9.x: a nested byte list, e.g. [[b0, b1, ...]]
+      - occasionally already bytes
+    """
+    if isinstance(value, str):
+        return bytes.fromhex(value[2:] if value.startswith("0x") else value)
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, (list, tuple)):
+        inner = value
+        if len(value) == 1 and isinstance(value[0], (list, tuple, bytes, bytearray, str)):
+            inner = value[0]
+        if isinstance(inner, str):
+            return bytes.fromhex(inner[2:] if inner.startswith("0x") else inner)
+        return bytes(inner)
+    return None
+
+
 def _extract_ciphertext(commitment_data) -> Optional[bytes]:
-    """Extract ciphertext bytes from a commitment data structure."""
+    """Extract ciphertext bytes from a commitment data structure.
+
+    Handles both the bittensor 9.x shape (fields -> [[{RawN: [[...]]}]]) and the
+    10.x shape (fields -> [{RawN: '0x...'}]), and unwraps ScaleObj via .value.
+    """
     try:
-        commitment = commitment_data["info"]["fields"][0][0]
-        raw_key = next(iter(commitment.keys()))
-        return bytes(commitment[raw_key][0])
+        data = commitment_data.value if hasattr(commitment_data, "value") else commitment_data
+        entry = data["info"]["fields"][0]
+        if isinstance(entry, (list, tuple)):
+            entry = entry[0]
+        raw_key = next(iter(entry.keys()))
+        return _raw_field_to_bytes(entry[raw_key])
     except Exception:
         return None
 
@@ -174,7 +201,8 @@ def read_all_commitments(
         if hotkey_str not in hotkey_set:
             continue
 
-        block = commitment_data.get("block", 0) if hasattr(commitment_data, "get") else 0
+        data = commitment_data.value if hasattr(commitment_data, "value") else commitment_data
+        block = data.get("block", 0) if hasattr(data, "get") else 0
 
         # If block hasn't changed, reuse cached decryption
         if hotkey_str in cache and cache[hotkey_str][0] == block:

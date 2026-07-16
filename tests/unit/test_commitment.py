@@ -144,6 +144,18 @@ class TestReadCommitment:
         result = read_commitment(subtensor, 138, "5FakeHotkey")
         assert result == ct
 
+    def test_reads_ciphertext_from_bt10_hex_metadata(self):
+        # bittensor 10.x / async-substrate-interface 2.x returns fields as
+        # [{RawN: '0x...'}] (single dict, hex string) rather than [[{RawN: [[...]]}]]
+        pub, _ = _generate_keypair()
+        ct = encrypt_endpoint("10.0.0.1", 9000, pub)
+        metadata = {"info": {"fields": [{f"Raw{len(ct)}": "0x" + ct.hex()}]}}
+
+        subtensor = MagicMock()
+        subtensor.substrate.query.return_value = metadata
+        result = read_commitment(subtensor, 138, "5FakeHotkey")
+        assert result == ct
+
     def test_returns_none_when_no_metadata(self):
         subtensor = MagicMock()
         subtensor.substrate.query.return_value = None
@@ -163,6 +175,23 @@ class TestReadAllCommitments:
     @staticmethod
     def _make_commitment_data(ciphertext, block=100):
         return {"block": block, "info": {"fields": [[{f"Raw{len(ciphertext)}": [list(ciphertext)]}]]}}
+
+    @staticmethod
+    def _make_bt10_commitment_data(ciphertext, block=100):
+        # bittensor 10.x shape: fields -> [{RawN: '0x...'}]
+        return {"block": block, "info": {"fields": [{f"Raw{len(ciphertext)}": "0x" + ciphertext.hex()}]}}
+
+    def test_decrypts_bt10_hex_format(self):
+        pub, priv = _generate_keypair()
+        ct = encrypt_endpoint("10.0.0.5", 8091, pub, hotkey="hk0")
+
+        subtensor = MagicMock()
+        subtensor.query_map.return_value = [("hk0", self._make_bt10_commitment_data(ct, block=42))]
+
+        endpoints, cache = read_all_commitments(subtensor, 138, ["hk0"], priv)
+
+        assert endpoints["hk0"] == ("10.0.0.5", 8091)
+        assert cache["hk0"][0] == 42
 
     def test_decrypts_all_available(self):
         pub, priv = _generate_keypair()
