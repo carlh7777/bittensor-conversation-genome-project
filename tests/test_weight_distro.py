@@ -44,7 +44,7 @@ def get_tied_indices(original_scores_list):
     return tied_indices
 
 def get_real_weights():
-    metagraph = bt.metagraph(33, lite = False)
+    metagraph = bt.Metagraph(33, lite = False)
     otf_weights = metagraph.W[63]
 
     stakes = metagraph.S
