@@ -90,7 +90,7 @@ class TestEncryptDecrypt:
 class TestPublishCommitment:
     def test_success(self):
         with patch(
-            "bittensor.core.extrinsics.serving.publish_metadata"
+            "bittensor.core.extrinsics.serving.publish_metadata_extrinsic"
         ) as mock_pub:
             result = publish_commitment(
                 subtensor=MagicMock(),
@@ -106,7 +106,7 @@ class TestPublishCommitment:
 
     def test_rate_limit_returns_false(self):
         with patch(
-            "bittensor.core.extrinsics.serving.publish_metadata",
+            "bittensor.core.extrinsics.serving.publish_metadata_extrinsic",
             side_effect=Exception("rate limit exceeded"),
         ):
             result = publish_commitment(
@@ -119,7 +119,7 @@ class TestPublishCommitment:
 
     def test_generic_error_returns_false(self):
         with patch(
-            "bittensor.core.extrinsics.serving.publish_metadata",
+            "bittensor.core.extrinsics.serving.publish_metadata_extrinsic",
             side_effect=Exception("something broke"),
         ):
             result = publish_commitment(
@@ -139,28 +139,22 @@ class TestReadCommitment:
         ct = encrypt_endpoint("10.0.0.1", 9000, pub)
         metadata = {"info": {"fields": [[{"Raw69": [list(ct)]}]]}}
 
-        with patch(
-            "bittensor.core.extrinsics.serving.get_metadata",
-            return_value=metadata,
-        ):
-            result = read_commitment(MagicMock(), 138, "5FakeHotkey")
-            assert result == ct
+        subtensor = MagicMock()
+        subtensor.substrate.query.return_value = metadata
+        result = read_commitment(subtensor, 138, "5FakeHotkey")
+        assert result == ct
 
     def test_returns_none_when_no_metadata(self):
-        with patch(
-            "bittensor.core.extrinsics.serving.get_metadata",
-            return_value=None,
-        ):
-            result = read_commitment(MagicMock(), 138, "5FakeHotkey")
-            assert result is None
+        subtensor = MagicMock()
+        subtensor.substrate.query.return_value = None
+        result = read_commitment(subtensor, 138, "5FakeHotkey")
+        assert result is None
 
     def test_returns_none_on_exception(self):
-        with patch(
-            "bittensor.core.extrinsics.serving.get_metadata",
-            side_effect=Exception("network error"),
-        ):
-            result = read_commitment(MagicMock(), 138, "5FakeHotkey")
-            assert result is None
+        subtensor = MagicMock()
+        subtensor.substrate.query.side_effect = Exception("network error")
+        result = read_commitment(subtensor, 138, "5FakeHotkey")
+        assert result is None
 
 
 # ── read_all_commitments ─────────────────────────────────────────────

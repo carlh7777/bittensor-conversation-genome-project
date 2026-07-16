@@ -65,8 +65,16 @@ def decrypt_endpoint(ciphertext: bytes, private_key_bytes: bytes, expected_hotke
 
 
 def publish_commitment(subtensor, wallet, netuid: int, ciphertext: bytes) -> bool:
-    """Publish encrypted endpoint ciphertext on-chain via publish_metadata."""
-    from bittensor.core.extrinsics.serving import publish_metadata
+    """Publish encrypted endpoint ciphertext on-chain via publish_metadata.
+
+    bittensor 10.x renamed publish_metadata → publish_metadata_extrinsic; the
+    call signature is unchanged, so we import whichever the installed version
+    exposes (10.x first, 9.x fallback).
+    """
+    try:
+        from bittensor.core.extrinsics.serving import publish_metadata_extrinsic as publish_metadata
+    except ImportError:
+        from bittensor.core.extrinsics.serving import publish_metadata
 
     try:
         publish_metadata(
@@ -89,11 +97,18 @@ def publish_commitment(subtensor, wallet, netuid: int, ciphertext: bytes) -> boo
 
 
 def read_commitment(subtensor, netuid: int, hotkey_ss58: str) -> Optional[bytes]:
-    """Read a single miner's encrypted commitment from chain."""
-    from bittensor.core.extrinsics.serving import get_metadata
+    """Read a single miner's encrypted commitment from chain.
 
+    Queries the Commitments.CommitmentOf storage directly. This replaces the
+    old bittensor.core.extrinsics.serving.get_metadata helper, which was
+    removed in bittensor 10.x; the direct query works on both 9.x and 10.x.
+    """
     try:
-        metadata = get_metadata(subtensor, netuid, hotkey_ss58)
+        metadata = subtensor.substrate.query(
+            module="Commitments",
+            storage_function="CommitmentOf",
+            params=[netuid, hotkey_ss58],
+        )
         if metadata is None:
             return None
         commitment = metadata["info"]["fields"][0][0]
